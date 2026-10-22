@@ -1,0 +1,35 @@
+{
+  "name": "spacebasetycoon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "scripts": {
+    "start": "npm run dev",
+    "build": "npm run lint && tsc && vite build",
+    "lint": "eslint .",
+    "dev": "vite",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "format": "bunx prettier . --write"
+  },
+  "dependencies": {
+    "pixi.js": "^8.22.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@vitest/coverage-v8": "^5.0.5",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.7",
+    "jsdom": "^30.1.3",
+    "prettier": "3.9.10",
+    "typescript": "~5.7.3",
+    "typescript-eslint": "^8.72.0",
+    "vite": "^6.4.5",
+    "vitest": "^5.0.5"
+  }
+}

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="72" viewBox="0 0 64 72">
+  <ellipse cx="34" cy="58" rx="28" ry="12" fill="#000" opacity="0.25"/>
+  <!-- left wall (lit) -->
+  <polygon points="4,26 32,40 32,70 4,56" fill="#d9dde3"/>
+  <!-- right wall (shade) -->
+  <polygon points="32,40 60,26 60,56 32,70" fill="#a5adb8"/>
+  <!-- roof -->
+  <polygon points="32,12 60,26 32,40 4,26" fill="#eef1f4"/>
+  <polygon points="32,12 60,26 32,40 4,26" fill="none" stroke="#8a929d" stroke-width="0.8"/>
+  <!-- trim stripes -->
+  <polygon points="4,50 32,64 32,67 4,53" fill="#e07a2e"/>
+  <polygon points="32,64 60,50 60,53 32,67" fill="#b35d1f"/>
+  <!-- windows -->
+  <polygon points="9,33 15,36 15,42 9,39" fill="#ffd66b"/>
+  <polygon points="19,38 25,41 25,47 19,44" fill="#ffd66b"/>
+  <polygon points="39,41 45,38 45,44 39,47" fill="#5c7a99"/>
+  <polygon points="49,36 55,33 55,39 49,42" fill="#5c7a99"/>
+  <!-- door -->
+  <polygon points="40,52 47,48.5 47,58 40,61.5" fill="#4a525c"/>
+  <!-- dome -->
+  <ellipse cx="32" cy="26" rx="13" ry="6.5" fill="#7e8893"/>
+  <path d="M19,26 A13,13 0 0 1 45,26 A13,6.5 0 0 1 19,26 Z" fill="#8fd3e8" opacity="0.85"/>
+  <path d="M23,21 A9,9 0 0 1 32,15" fill="none" stroke="#ffffff" stroke-width="1.5" opacity="0.8"/>
+  <!-- antenna -->
+  <line x1="52" y1="28" x2="52" y2="6" stroke="#6b737d" stroke-width="1"/>
+  <circle cx="52" cy="5" r="1.6" fill="#ff4d4d"/>
+</svg>
