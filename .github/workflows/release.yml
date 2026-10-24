@@ -1,17 +1,57 @@
-# Push a tag like v1.2.3 to deploy the game to GitHub Pages and publish a
-# GitHub release whose notes are generated from the conventional commits
-# since the previous tag (see cliff.toml).
+# Manual release: Actions → Release → Run workflow (from main), enter a
+# version like 1.2.3. Runs the CI checks, deploys that build to GitHub
+# Pages, then tags the tested commit v1.2.3 and publishes a GitHub release
+# whose notes are generated from the conventional commits since the
+# previous tag (see cliff.toml). The tag is created last, so a failed run
+# leaves nothing behind.
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 1.2.3 (tagged v1.2.3)"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: check
+        name: Validate version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          version="${VERSION#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version must look like 1.2.3 (got '$VERSION')"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Run the release from main (got $GITHUB_REF)"
+            exit 1
+          fi
+          tag="v$version"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "::error::Tag $tag already exists"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
   ci:
+    needs: prepare
     uses: ./.github/workflows/ci.yml
     with:
       upload-pages: true
@@ -30,18 +70,25 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@v4
 
   release:
-    needs: deploy
+    needs: [prepare, deploy]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           # Full history and tags, so notes span back to the previous tag.
           fetch-depth: 0
+
+      - name: Tag the released commit
+        run: |
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
 
       - uses: oven-sh/setup-bun@v2
 
@@ -52,7 +99,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
+          gh release create "$TAG" \
+            --title "$TAG" \
             --notes-file RELEASE_NOTES.md \
             --verify-tag
