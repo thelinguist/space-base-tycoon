@@ -1,6 +1,6 @@
 # Lint, format check, tests (with the 100% coverage gate) and build.
-# Runs on PRs and pushes to main, and is reused by release.yml so a tag is
-# deployed from exactly the build these checks produced.
+# Runs on PRs and pushes to main, and is reused by release.yml so a release
+# deploys exactly the build these checks produced.
 name: CI
 
 on:
