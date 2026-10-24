@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" shape-rendering="crispEdges">
+  <!-- regolith mound -->
+  <rect x="4" y="26" width="24" height="4" fill="#b4562f"/>
+  <rect x="8" y="24" width="16" height="2" fill="#b4562f"/>
+  <rect x="12" y="22" width="8" height="2" fill="#c0633a"/>
+  <!-- grip -->
+  <rect x="4" y="2" width="8" height="2" fill="#4a525c"/>
+  <rect x="7" y="4" width="2" height="2" fill="#4a525c"/>
+  <!-- shaft -->
+  <rect x="8" y="6" width="2" height="2" fill="#e07a2e"/>
+  <rect x="10" y="8" width="2" height="2" fill="#e07a2e"/>
+  <rect x="12" y="10" width="2" height="2" fill="#e07a2e"/>
+  <rect x="14" y="12" width="2" height="2" fill="#b35d1f"/>
+  <rect x="16" y="14" width="2" height="2" fill="#b35d1f"/>
+  <!-- blade -->
+  <rect x="17" y="16" width="4" height="2" fill="#d9dde3"/>
+  <rect x="16" y="18" width="7" height="2" fill="#d9dde3"/>
+  <rect x="17" y="20" width="6" height="2" fill="#a5adb8"/>
+  <rect x="19" y="22" width="3" height="2" fill="#a5adb8"/>
+</svg>

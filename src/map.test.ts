@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { generateMap, TileMap } from "./map"
+import {
+  BUILDING_SIZE,
+  footprint,
+  footprintCenter,
+  generateMap,
+  TileMap,
+} from "./map"
 
 describe("TileMap", () => {
   it("starts as empty regolith", () => {
@@ -10,8 +16,8 @@ describe("TileMap", () => {
 
   it("stores tiles row-major", () => {
     const map = new TileMap(3, 2)
-    map.getTile(1, 1).building = "habitat"
-    expect(map.tiles[4].building).toBe("habitat")
+    map.getTile(1, 1).terrain = "ice"
+    expect(map.tiles[4].terrain).toBe("ice")
   })
 
   it("checks bounds", () => {
@@ -26,10 +32,67 @@ describe("TileMap", () => {
 
   it("is walkable in bounds and where there is no building", () => {
     const map = new TileMap(3, 3)
-    map.getTile(1, 1).building = "habitat"
+    map.place("habitat", 1, 1)
     expect(map.isWalkable(0, 0)).toBe(true)
     expect(map.isWalkable(1, 1)).toBe(false)
     expect(map.isWalkable(5, 5)).toBe(false)
+  })
+})
+
+describe("footprints", () => {
+  it("sizes habitats 1×1 and radar stations 2×2", () => {
+    expect(BUILDING_SIZE).toEqual({ habitat: 1, radar: 2 })
+    expect(footprint("habitat", 3, 4)).toEqual([{ x: 3, y: 4 }])
+    expect(footprint("radar", 3, 4)).toEqual([
+      { x: 3, y: 4 },
+      { x: 4, y: 4 },
+      { x: 3, y: 5 },
+      { x: 4, y: 5 },
+    ])
+  })
+
+  it("centers on the footprint", () => {
+    expect(footprintCenter("habitat", 3, 4)).toEqual({ x: 3.5, y: 4.5 })
+    expect(footprintCenter("radar", 3, 4)).toEqual({ x: 4, y: 5 })
+  })
+
+  it("places a building on every footprint tile", () => {
+    const map = new TileMap(4, 4)
+    const radar = map.place("radar", 1, 1)
+    expect(radar).toEqual({ type: "radar", x: 1, y: 1 })
+    expect(map.buildings).toEqual([radar])
+    for (const t of footprint("radar", 1, 1)) {
+      expect(map.getTile(t.x, t.y).building).toBe(radar)
+    }
+    expect(map.getTile(0, 0).building).toBeNull()
+  })
+
+  it("canPlace needs the whole footprint empty, in bounds and buildable", () => {
+    const map = new TileMap(4, 4)
+    expect(map.canPlace("radar", 0, 0)).toBe(true)
+    expect(map.canPlace("radar", 3, 0)).toBe(false) // hangs off the edge
+    map.getTile(1, 1).terrain = "crater"
+    expect(map.canPlace("radar", 0, 0)).toBe(false)
+    map.getTile(1, 1).terrain = "rocky"
+    expect(map.canPlace("radar", 0, 0)).toBe(true)
+    map.getTile(1, 1).terrain = "ice"
+    expect(map.canPlace("radar", 0, 0)).toBe(false)
+    map.place("habitat", 2, 2)
+    expect(map.canPlace("radar", 2, 1)).toBe(false)
+  })
+
+  it("lists walkable edge-adjacent tiles as doors", () => {
+    const map = new TileMap(4, 4)
+    const radar = map.place("radar", 0, 0)
+    // Top and left sides are off the map.
+    expect(map.doorsOf(radar)).toEqual([
+      { x: 2, y: 0 },
+      { x: 0, y: 2 },
+      { x: 2, y: 1 },
+      { x: 1, y: 2 },
+    ])
+    map.place("habitat", 2, 0)
+    expect(map.doorsOf(radar)).toHaveLength(3)
   })
 })
 
@@ -56,7 +119,7 @@ describe("generateMap", () => {
     const built = map.tiles.filter((t) => t.building)
     expect(built).toHaveLength(14)
     for (const t of built) {
-      expect(t.building).toBe("habitat")
+      expect(t.building?.type).toBe("habitat")
       expect(t.terrain).toBe("regolith")
     }
   })
@@ -76,7 +139,7 @@ describe("generateMap", () => {
     const map = generateMap(3, 3, 1337, { x: 100, y: 100 })
     const regolith = map.tiles.filter((t) => t.terrain === "regolith")
     expect(regolith.length).toBeGreaterThan(0)
-    expect(regolith.every((t) => t.building === "habitat")).toBe(true)
+    expect(regolith.every((t) => t.building?.type === "habitat")).toBe(true)
   })
 
   it("places nothing when the whole map is reserved", () => {

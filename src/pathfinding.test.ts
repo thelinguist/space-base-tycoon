@@ -8,7 +8,7 @@ function mapFrom(rows: string[]): TileMap {
   const map = new TileMap(rows[0].length, rows.length)
   rows.forEach((row, y) =>
     [...row].forEach((c, x) => {
-      if (c === "#") map.getTile(x, y).building = "habitat"
+      if (c === "#") map.place("habitat", x, y)
     }),
   )
   return map

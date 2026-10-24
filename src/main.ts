@@ -24,7 +24,8 @@ const MAP_SEED = 1337
     seed: MAP_SEED,
     viewport: app.screen,
   })
-  app.stage.addChild(game.camera.world)
+  app.stage.addChild(game.camera.world, game.dashboard.view)
+  app.renderer.on("resize", (width, height) => game.resize(width, height))
   app.stage.hitArea = app.screen
   game.bindInput(app.stage, app.canvas)
 

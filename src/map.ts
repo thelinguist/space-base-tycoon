@@ -2,14 +2,55 @@ import { BuildingType, TerrainType } from "./assets"
 import { Point } from "./iso"
 import { hash, perlinNoise } from "./utils/noise"
 
+/** Side length, in tiles, of each building's square footprint. */
+export const BUILDING_SIZE: Record<BuildingType, number> = {
+  habitat: 1,
+  radar: 2,
+}
+
+/** Terrain that can be built on; craters and ice can't hold foundations. */
+export const BUILDABLE_TERRAIN: ReadonlySet<TerrainType> = new Set([
+  "regolith",
+  "rocky",
+])
+
+/** A placed building. (x, y) is its footprint's minimum (top) tile. */
+export interface Building {
+  type: BuildingType
+  x: number
+  y: number
+}
+
 export interface Tile {
   terrain: TerrainType
-  building: BuildingType | null
+  /** The building covering this tile, shared by its whole footprint. */
+  building: Building | null
+}
+
+/** Every tile a building of `type` would cover with its origin at (x, y). */
+export function footprint(type: BuildingType, x: number, y: number): Point[] {
+  const size = BUILDING_SIZE[type]
+  const tiles: Point[] = []
+  for (let dy = 0; dy < size; dy++) {
+    for (let dx = 0; dx < size; dx++) tiles.push({ x: x + dx, y: y + dy })
+  }
+  return tiles
+}
+
+/** Grid position of a building's footprint center, where its sprite stands. */
+export function footprintCenter(
+  type: BuildingType,
+  x: number,
+  y: number,
+): Point {
+  const half = BUILDING_SIZE[type] / 2
+  return { x: x + half, y: y + half }
 }
 
 /** The 2D logical map. Knows nothing about rendering. */
 export class TileMap {
   readonly tiles: Tile[]
+  readonly buildings: Building[] = []
 
   constructor(
     readonly width: number,
@@ -31,6 +72,41 @@ export class TileMap {
 
   isWalkable(tx: number, ty: number): boolean {
     return this.isInBounds(tx, ty) && this.getTile(tx, ty).building === null
+  }
+
+  /** Whether every footprint tile is in bounds, empty and buildable. */
+  canPlace(type: BuildingType, x: number, y: number): boolean {
+    return footprint(type, x, y).every(
+      (t) =>
+        this.isWalkable(t.x, t.y) &&
+        BUILDABLE_TERRAIN.has(this.getTile(t.x, t.y).terrain),
+    )
+  }
+
+  /** Walkable tiles sharing an edge with a building's footprint. */
+  doorsOf(building: Building): Point[] {
+    const { type, x, y } = building
+    const size = BUILDING_SIZE[type]
+    const doors: Point[] = []
+    for (let i = 0; i < size; i++) {
+      doors.push(
+        { x: x + i, y: y - 1 },
+        { x: x + size, y: y + i },
+        { x: x + i, y: y + size },
+        { x: x - 1, y: y + i },
+      )
+    }
+    return doors.filter((t) => this.isWalkable(t.x, t.y))
+  }
+
+  /** Place a building without checks; callers validate with canPlace. */
+  place(type: BuildingType, x: number, y: number): Building {
+    const building = { type, x, y }
+    for (const t of footprint(type, x, y)) {
+      this.getTile(t.x, t.y).building = building
+    }
+    this.buildings.push(building)
+    return building
   }
 }
 
@@ -70,7 +146,7 @@ export function generateMap(
     const nearStart =
       Math.abs(tx - keepClear.x) <= 1 && Math.abs(ty - keepClear.y) <= 1
     if (nearStart || tile.terrain !== "regolith" || tile.building) continue
-    tile.building = "habitat"
+    map.place("habitat", tx, ty)
     placed++
   }
 

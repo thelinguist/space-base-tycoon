@@ -13,8 +13,15 @@ describe("assets", () => {
       "rocky",
       "crater",
       "ice",
+      "ice2",
+      "ice3",
+      "ice4",
       "habitat",
+      "radar",
       "robot",
+      "robotBlue",
+      "spaceman",
+      "terraform",
     ])
   })
 
@@ -38,6 +45,7 @@ describe("assets", () => {
     expect(tile.texture).toBe(Texture.from("regolith"))
     expect(tile.anchor.x).toBe(0.5)
     expect(tile.anchor.y).toBe(0.5)
+    expect(tile.label).toBe("regolith")
 
     const habitat = makeSprite("habitat")
     expect(habitat.anchor.y).toBeCloseTo(56 / 72)
