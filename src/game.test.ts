@@ -1,6 +1,11 @@
 import { Container, Graphics, Sprite, Texture } from "pixi.js"
 import { describe, expect, it, vi } from "vitest"
 import { ICE_VARIANTS } from "./assets"
+import {
+  ARMY_MAN_MARCH,
+  ROBOT_ARRIVE,
+  TERRAFORM_SOUNDS,
+} from "./constants/sounds"
 import { BLOCKED_COLOR, GOAL_COLOR, HOVER_COLOR } from "./constants/color"
 import {
   buildBuildings,
@@ -10,6 +15,7 @@ import {
   footprintOrigin,
   Game,
   makeBuildingSprite,
+  MARCH_BEAT,
   MAX_SPACEMEN_PER_STATION,
 } from "./game"
 import {
@@ -21,6 +27,9 @@ import {
 } from "./iso"
 import { BUILDABLE_TERRAIN, footprint, TileMap } from "./map"
 import { ROBOT_KINDS } from "./robot"
+import { AudioSettings } from "./audioSettings"
+import { SoundPlayer, sound as sharedSound } from "./sound"
+import { Spaceman } from "./spaceman"
 import { TERRAFORM_EFFECTS } from "./terraformEffects"
 import { TERRAIN_EFFECTS } from "./tileEffects"
 import { TERRAFORMABLE } from "./tools"
@@ -821,6 +830,144 @@ describe("Game", () => {
       expect(game.tileEffects.active).not.toContain(shake)
       expect(sprite.x).toBe(tileToWorld(tile.x, tile.y).x)
       expect(sprite.y).toBe(tileToWorld(tile.x, tile.y).y)
+    })
+  })
+
+  describe("sound", () => {
+    function withSound() {
+      const sound = new SoundPlayer(undefined, new AudioSettings(null))
+      const play = vi.spyOn(sound, "playSound")
+      const game = new Game({
+        mapSize: 32,
+        seed: 1337,
+        viewport: VIEWPORT,
+        sound,
+      })
+      return { game, sound, play }
+    }
+
+    it("uses the shared player by default", () => {
+      expect(newGame().sound).toBe(sharedSound)
+    })
+
+    it("chimes when a robot arrives, not while it walks or idles", () => {
+      const { game, play } = withSound()
+      click(game, getScreenPos(game, 20, 16))
+      game.update(0.1)
+      expect(play).not.toHaveBeenCalled()
+      game.update(10)
+      expect(play).toHaveBeenCalledExactlyOnceWith(ROBOT_ARRIVE)
+      game.update(1)
+      expect(play).toHaveBeenCalledOnce()
+    })
+
+    it("plays each terrain's terraform sound", () => {
+      const { game, play } = withSound()
+      for (const terrain of ["crater", "rocky", "ice"] as const) {
+        game.map.getTile(3, 3).terrain = terrain
+        game.terraform({ x: 3, y: 3 })
+        expect(play).toHaveBeenLastCalledWith(TERRAFORM_SOUNDS[terrain])
+      }
+    })
+
+    it("marches while astronauts walk, on one shared beat", () => {
+      const sound = new SoundPlayer(undefined, new AudioSettings(null))
+      const play = vi.spyOn(sound, "playSound")
+      const game = new Game({
+        mapSize: 32,
+        seed: 1337,
+        viewport: VIEWPORT,
+        sound,
+        // Varied so wander targets land off the station.
+        random: (() => {
+          const values = [0.5, 0.95, 0.95]
+          let i = 0
+          return () => values[i++ % values.length]
+        })(),
+      })
+      const stomps = () =>
+        play.mock.calls.filter(([s]) => s === ARMY_MAN_MARCH).length
+      const radar = game.map.place("radar", 2, 2)
+      game.update(0.01) // first astronaut out
+      game.update(0.01) // and walking
+      expect(game.spacemen[0].isMoving).toBe(true)
+      expect(stomps()).toBe(1) // straight away
+
+      game.update(MARCH_BEAT * 0.9)
+      expect(stomps()).toBe(1)
+      game.update(MARCH_BEAT * 0.2)
+      expect(stomps()).toBe(2)
+
+      // A second walker doesn't double the beat.
+      game.spacemen.push(new Spaceman(radar, { x: 4, y: 3 }, () => 0.9))
+      game.update(MARCH_BEAT)
+      expect(stomps()).toBe(3)
+
+      // One long frame plays one stomp, not a backlog.
+      game.update(MARCH_BEAT * 3)
+      expect(stomps()).toBe(4)
+    })
+
+    it("stops marching when nobody walks, and restarts on the next step", () => {
+      const { game, play } = withSound()
+      // Not placed on the map, so it won't send out crew of its own.
+      const radar = { type: "radar" as const, x: 2, y: 2 }
+      const walker = new Spaceman(radar, { x: 4, y: 3 }, () => 0.5)
+      // Only follow the paths we give it; no wandering of its own.
+      vi.spyOn(walker, "think").mockImplementation((_, dt) => walker.update(dt))
+      game.spacemen.push(walker)
+      walker.setPath([
+        { x: 4, y: 3 },
+        { x: 5, y: 3 },
+      ])
+      game.update(0.01)
+      expect(play).toHaveBeenLastCalledWith(ARMY_MAN_MARCH)
+      walker.setPath([])
+      play.mockClear()
+      game.update(MARCH_BEAT * 2)
+      expect(play).not.toHaveBeenCalledWith(ARMY_MAN_MARCH)
+
+      walker.setPath([{ x: 5, y: 3 }])
+      game.update(0.01)
+      expect(play).toHaveBeenCalledWith(ARMY_MAN_MARCH)
+    })
+
+    it("M toggles mute", () => {
+      const { game, sound } = withSound()
+      game.keyDown("m")
+      expect(sound.settings.muted).toBe(true)
+      game.keyDown("M")
+      expect(sound.settings.muted).toBe(false)
+      // M isn't passed on to the dashboard.
+      expect(game.dashboard.build.selected).toBeNull()
+    })
+
+    it("ignores keys typed into form controls", () => {
+      const { game } = withSound()
+      game.bindInput(new Container(), document.createElement("canvas"))
+      const slider = document.createElement("input")
+      document.body.append(slider)
+      slider.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "1", bubbles: true }),
+      )
+      expect(game.dashboard.build.selected).toBeNull()
+      slider.remove()
+    })
+
+    it("pauses audio while the page is hidden", () => {
+      const { game, sound } = withSound()
+      const setPaused = vi.spyOn(sound, "setPaused")
+      game.bindInput(new Container(), document.createElement("canvas"))
+      document.dispatchEvent(new Event("visibilitychange"))
+      expect(setPaused).toHaveBeenCalledWith(document.hidden)
+    })
+
+    it("unlocks audio on the first click or key press", () => {
+      const { game, sound } = withSound()
+      const unlock = vi.spyOn(sound, "unlock").mockResolvedValue()
+      game.bindInput(new Container(), document.createElement("canvas"))
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "x" }))
+      expect(unlock).toHaveBeenCalledOnce()
     })
   })
 })

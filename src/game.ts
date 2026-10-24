@@ -7,6 +7,11 @@ import {
 } from "pixi.js"
 import { AssetName, BuildingType, ICE_VARIANTS, makeSprite } from "./assets"
 import { Camera } from "./camera"
+import {
+  ARMY_MAN_MARCH,
+  ROBOT_ARRIVE,
+  TERRAFORM_SOUNDS,
+} from "./constants/sounds"
 import { BLOCKED_COLOR, GOAL_COLOR, HOVER_COLOR } from "./constants/color"
 import {
   gridToWorld,
@@ -25,6 +30,7 @@ import {
 } from "./map"
 import { findPath } from "./pathfinding"
 import { Robot, ROBOT_KINDS } from "./robot"
+import { SoundPlayer, sound as sharedSound } from "./sound"
 import { Spaceman } from "./spaceman"
 import { TERRAFORM_EFFECTS } from "./terraformEffects"
 import { TileEffects } from "./tileEffects"
@@ -46,6 +52,8 @@ export const MAX_SPACEMEN_PER_STATION = 3
 /** Seconds between spawn attempts at a station: MIN + random × RANGE. */
 const SPAWN_MIN = 3
 const SPAWN_RANGE = 7
+/** Seconds between march stomps while astronauts walk (120 bpm). */
+export const MARCH_BEAT = 0.5
 
 /**
  * Footprint origin for a building of `type` centered as closely as
@@ -131,6 +139,8 @@ export type GameOptions = MapSource & {
   viewport: { width: number; height: number }
   /** Source of randomness for crew behavior; injectable for tests. */
   random?: () => number
+  /** Plays sound effects; defaults to the shared player. */
+  sound?: SoundPlayer
 }
 
 /** The scene and its input handling, independent of the Pixi Application. */
@@ -161,7 +171,10 @@ export class Game {
   ghost: Sprite | null = null
   /** Seconds until each radar station next tries to send someone out. */
   private readonly spawnTimers = new Map<Building, number>()
+  /** Seconds until the next march stomp; 0 means stomp on the next step. */
+  private marchTimer = 0
   private readonly random: () => number
+  readonly sound: SoundPlayer
   private press: {
     x: number
     y: number
@@ -171,8 +184,9 @@ export class Game {
   } | null = null
 
   constructor(options: GameOptions) {
-    const { viewport, random = Math.random } = options
+    const { viewport, random = Math.random, sound = sharedSound } = options
     this.random = random
+    this.sound = sound
     if ("map" in options) {
       this.map = options.map
     } else {
@@ -329,6 +343,10 @@ export class Game {
   }
 
   keyDown(key: string): void {
+    if (key.toLowerCase() === "m") {
+      this.sound.settings.toggleMute()
+      return
+    }
     this.withToolSync(() => this.dashboard.keyDown(key))
   }
 
@@ -375,6 +393,7 @@ export class Game {
     const w = tileToWorld(tile.x, tile.y)
     sprite.position.set(w.x, w.y)
     this.tileEffects.play(tile, TERRAFORM_EFFECTS[was])
+    this.sound.playSound(TERRAFORM_SOUNDS[was])
     return true
   }
 
@@ -390,8 +409,10 @@ export class Game {
       robot.update(deltaSeconds)
       if (robot.isMoving) continue
       robot.goal = null
+      if (!wasMoving) continue
+      this.sound.playSound(ROBOT_ARRIVE)
       // Stopping on a tile uses the robot's tool there.
-      if (wasMoving && robot.tool) this.useTool(robot.tool, robot.tile)
+      if (robot.tool) this.useTool(robot.tool, robot.tile)
     }
     this.updateCrew(deltaSeconds)
 
@@ -452,6 +473,24 @@ export class Game {
       this.spacemen[i].sprite.destroy()
       this.spacemen.splice(i, 1)
     }
+    this.updateMarch(deltaSeconds)
+  }
+
+  /**
+   * One shared beat for all walking astronauts, so a crowd marches in
+   * step rather than clattering. It pauses when nobody walks and restarts
+   * on the first step.
+   */
+  private updateMarch(deltaSeconds: number): void {
+    if (!this.spacemen.some((s) => s.isMoving)) {
+      this.marchTimer = 0
+      return
+    }
+    this.marchTimer -= deltaSeconds
+    if (this.marchTimer > 0) return
+    this.sound.playSound(ARMY_MAN_MARCH)
+    // Reset rather than accumulate, so a long frame can't queue up stomps.
+    this.marchTimer = MARCH_BEAT
   }
 
   private updateGhost(
@@ -473,12 +512,17 @@ export class Game {
     this.ghost.tint = this.canBuild(selected, origin) ? 0xffffff : BLOCKED_COLOR
   }
 
-  /** Route Pixi stage pointer events and canvas wheel events to the game. */
+  /**
+   * Route Pixi stage pointer events and canvas wheel events to the game.
+   * The first click or key press also unlocks audio, and audio pauses
+   * while the page is hidden.
+   */
   bindInput(stage: Container, canvas: HTMLElement): void {
     stage.eventMode = "static"
-    stage.on("pointerdown", (e: FederatedPointerEvent) =>
-      this.pointerDown(e.global.x, e.global.y),
-    )
+    stage.on("pointerdown", (e: FederatedPointerEvent) => {
+      void this.sound.unlock()
+      this.pointerDown(e.global.x, e.global.y)
+    })
     stage.on("globalpointermove", (e: FederatedPointerEvent) =>
       this.pointerMove(e.global.x, e.global.y),
     )
@@ -486,7 +530,15 @@ export class Game {
       this.pointerUp(e.global.x, e.global.y),
     )
     stage.on("pointerupoutside", () => this.cancelPress())
-    window.addEventListener("keydown", (e) => this.keyDown(e.key))
+    window.addEventListener("keydown", (e) => {
+      void this.sound.unlock()
+      // Leave keys typed into form controls (e.g. volume sliders) alone.
+      if (e.target instanceof HTMLInputElement) return
+      this.keyDown(e.key)
+    })
+    document.addEventListener("visibilitychange", () =>
+      this.sound.setPaused(document.hidden),
+    )
     canvas.addEventListener(
       "wheel",
       (e) => {

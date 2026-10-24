@@ -13,3 +13,48 @@ body {
   justify-content: center;
   align-items: center;
 }
+
+/* Audio settings, top-right. Pixel look: monospace, square corners, hard
+   2px borders, in the UI_* colors from src/constants/color.ts. */
+.audio-panel {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: #2a1a22;
+  border: 2px solid #5c3a48;
+  color: #f2e6d8;
+  font: bold 10px monospace;
+}
+
+.audio-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.audio-panel input[type="range"] {
+  width: 96px;
+  accent-color: #e07a2e;
+}
+
+.audio-panel.muted input[type="range"] {
+  opacity: 0.4;
+}
+
+.audio-mute {
+  padding: 4px 6px;
+  background: #3d2631;
+  border: 2px solid #5c3a48;
+  border-radius: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.audio-mute[aria-pressed="true"] {
+  border-color: #e07a2e;
+}

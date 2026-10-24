@@ -4,6 +4,7 @@ import { Application } from "pixi.js"
 import { loadAssets } from "./assets"
 import { BACKGROUND_COLOR } from "./constants/color"
 import { Game } from "./game"
+import { mountAudioPanel } from "./ui/audioPanel"
 
 const MAP_SIZE = 64
 const MAP_SEED = 1337
@@ -28,6 +29,7 @@ const MAP_SEED = 1337
   app.renderer.on("resize", (width, height) => game.resize(width, height))
   app.stage.hitArea = app.screen
   game.bindInput(app.stage, app.canvas)
+  mountAudioPanel(document.body, game.sound.settings)
 
   app.ticker.add((time) => game.update(time.deltaMS / 1_000))
 })()

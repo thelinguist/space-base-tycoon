@@ -4,6 +4,7 @@ import { Application, Container, Graphics, Text } from "pixi.js"
 import { loadAssets } from "../assets"
 import { BACKGROUND_COLOR, UI_TEXT_COLOR } from "../constants/color"
 import { Game } from "../game"
+import { sound } from "../sound"
 import { tileToWorld } from "../iso"
 import { seededRandom } from "../utils/random"
 import { drawGrid } from "./grid"
@@ -77,8 +78,16 @@ const $ = <T extends HTMLElement>(id: string) =>
   }
 
   function apply({ rebuild, steps }: { rebuild: boolean; steps: number }) {
-    if (rebuild || !game) build()
-    for (let i = 0; i < steps; i++) game!.update(STEP)
+    const run = () => {
+      for (let i = 0; i < steps; i++) game!.update(STEP)
+    }
+    if (rebuild || !game) {
+      build()
+      // Replaying from the start: don't blast every past sound at once.
+      sound.silently(run)
+    } else {
+      run()
+    }
     syncControls()
   }
 
@@ -177,7 +186,10 @@ const $ = <T extends HTMLElement>(id: string) =>
   $("reseed").onclick = () => setSeed(Math.floor(Math.random() * 1e6))
   gridBtn.onclick = toggleGrid
 
+  // Browsers only allow audio after the user interacts with the page.
+  window.addEventListener("pointerdown", () => void sound.unlock())
   window.addEventListener("keydown", (e) => {
+    void sound.unlock()
     if (e.target instanceof HTMLInputElement) return
     if (e.key === " ") togglePlay()
     else if (e.key === "ArrowLeft") stepBy(-1)

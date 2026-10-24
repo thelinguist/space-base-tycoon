@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(gh *)",
+      "Bash(git push *)",
+      "Bash(git commit *)"
+    ]
+  }
+}
