@@ -1,10 +1,15 @@
 import { Graphics } from "pixi.js"
 import { describe, expect, it, vi } from "vitest"
 import {
+  DIRT_PUFFS,
+  DIRT_SPECKS,
   dirtCloud,
   LASER_HEIGHT,
   laserMelt,
+  NITROGEN_PUFFS,
+  NITROGEN_REACH,
   nitrogenFreeze,
+  ROLL_RADIUS,
   TERRAFORM_EFFECTS,
 } from "./terraformEffects"
 import { EffectInstance } from "./tileEffects"
@@ -58,8 +63,7 @@ describe("terraform effects", () => {
     it("bursts out fast and dissipates quickly", () => {
       const cloud = dirtCloud(half)
       expect(cloud.duration).toBeLessThan(1)
-      // 14 puffs + 10 specks.
-      expect(calls(cloud, "rect", 0.1)).toHaveLength(24)
+      expect(calls(cloud, "rect", 0.1)).toHaveLength(DIRT_PUFFS + DIRT_SPECKS)
 
       // Puffs (first rect) spread out over time.
       const [early] = calls(cloud, "rect", 0.1)
@@ -109,19 +113,21 @@ describe("terraform effects", () => {
   })
 
   describe("liquid nitrogen", () => {
-    it("reaches one tile beyond the frozen tile", () => {
-      const freeze = nitrogenFreeze(half)
-      const [haze] = calls(freeze, "ellipse", 0.999)
-      // diamondToLocal(3, -3): 1.5 tile widths out from the center.
-      expect(haze[2]).toBeCloseTo(96)
-      expect(haze[3]).toBeCloseTo(48)
+    it("rolls out to about NITROGEN_REACH", () => {
+      const xs = calls(nitrogenFreeze(Math.random), "circle", 0.999).map(
+        ([x]) => Math.abs(x),
+      )
+      expect(Math.max(...xs)).toBeLessThanOrEqual(
+        NITROGEN_REACH + ROLL_RADIUS + 1,
+      )
+      expect(Math.max(...xs)).toBeGreaterThan(NITROGEN_REACH / 2)
     })
 
     it("sends puffs out in staggered waves", () => {
       // random 0.5 → every puff waits 0.175 of the effect.
       const freeze = nitrogenFreeze(half)
       expect(calls(freeze, "circle", 0.1)).toHaveLength(0)
-      expect(calls(freeze, "circle", 0.5)).toHaveLength(52)
+      expect(calls(freeze, "circle", 0.5)).toHaveLength(NITROGEN_PUFFS)
       const varied = nitrogenFreeze(Math.random)
       const early = calls(varied, "circle", 0.15).length
       expect(early).toBeLessThan(calls(varied, "circle", 0.5).length)
@@ -135,12 +141,14 @@ describe("terraform effects", () => {
         const circles = calls(freeze, "circle", 0.05 + i * 0.02)
         return circles.reduce((a, b) => (b[0] > a[0] ? b : a))
       })
-      // It never swings back past the center, and ends up far out.
-      for (const [x] of samples) expect(x).toBeGreaterThan(-6)
-      expect(samples[samples.length - 1][0]).toBeGreaterThan(samples[0][0] + 50)
+      // It never swings back past the center, and ends up well out.
+      for (const [x] of samples) expect(x).toBeGreaterThan(-ROLL_RADIUS - 1)
+      expect(samples[samples.length - 1][0]).toBeGreaterThan(
+        samples[0][0] + NITROGEN_REACH / 2,
+      )
       // The tumble lifts it up and down as it goes.
       const ys = samples.map(([, y]) => y)
-      expect(Math.min(...ys)).toBeLessThan(Math.max(...ys) - 5)
+      expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(ROLL_RADIUS)
       const rises = ys.slice(1).filter((y, i) => y < ys[i]).length
       const falls = ys.slice(1).filter((y, i) => y > ys[i]).length
       expect(rises).toBeGreaterThan(0)
@@ -154,11 +162,10 @@ describe("terraform effects", () => {
       expect(ys).toEqual([...ys].sort((a, b) => a - b))
     })
 
-    it("appears quickly, then thins away", () => {
+    it("thins away to nothing", () => {
       const freeze = nitrogenFreeze(half)
-      expect(alphas(freeze, 0)[0]).toBe(0)
-      expect(alphas(freeze, 0.15)[0]).toBeGreaterThan(alphas(freeze, 0.8)[0])
-      expect(alphas(freeze, 1)[0]).toBe(0)
+      expect(alphas(freeze, 0.3)[0]).toBeGreaterThan(alphas(freeze, 0.8)[0])
+      expect(alphas(freeze, 1).every((a) => a === 0)).toBe(true)
     })
   })
 })

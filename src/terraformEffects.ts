@@ -22,8 +22,8 @@ function pixelSquare(g: Graphics, x: number, y: number, size: number) {
 // --- Crater: dirt cloud ------------------------------------------------------
 
 const DIRT_COLORS = [0x6e3b22, 0x8a4a2a, 0xb4562f]
-const DIRT_PUFFS = 14
-const DIRT_SPECKS = 40
+export const DIRT_PUFFS = 14
+export const DIRT_SPECKS = 40
 
 /**
  * A scruffy cloud of dirt bursts out around the robot and dissipates
@@ -127,11 +127,11 @@ export function laserMelt(random: () => number): EffectInstance {
 // --- Ice: liquid nitrogen ----------------------------------------------------
 
 const FROST_COLORS = [0xffffff, 0xdff3fb]
-/** The cloud's edge reaches this far out: the tile plus 2 tiles around. */
-const NITROGEN_REACH = diamondToLocal(1, -1).x
-const NITROGEN_PUFFS = 72
+/** How far out the cloud rolls, in pixels: to the frozen tile's corners. */
+export const NITROGEN_REACH = diamondToLocal(1, -1).x
+export const NITROGEN_PUFFS = 72
 /** Radius in pixels of the tumble each puff makes as it rolls outward. */
-const ROLL_RADIUS = 3
+export const ROLL_RADIUS = 3
 /** Latest start, as a share of the effect, so puffs set off in waves. */
 const MAX_DELAY = 0.35
 
@@ -159,8 +159,6 @@ export function nitrogenFreeze(random: () => number): EffectInstance {
       view.clear()
       // Quick to appear, then a long fade.
       const alpha = Math.min(1, t * 8) * (1 - t) ** 1.5
-      // A thin haze under the puffs fills the cloud in.
-
       const drawn = []
       for (const p of puffs) {
         const local = (t - p.delay) / (1 - p.delay)

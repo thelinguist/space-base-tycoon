@@ -163,6 +163,50 @@ describe("Game", () => {
     expect(getScreenPos(game, 16, 16)).toEqual({ x: 400, y: 300 })
   })
 
+  describe("prepared maps", () => {
+    it("uses a given map and centers robots on it", () => {
+      const map = new TileMap(7, 5)
+      map.place("habitat", 0, 0)
+      const game = new Game({ map, viewport: VIEWPORT })
+      expect(game.map).toBe(map)
+      // One habitat + 2 robots.
+      expect(game.objects.children).toHaveLength(3)
+      expect(game.robots.map((r) => r.tile)).toEqual([
+        { x: 3, y: 2 },
+        { x: 4, y: 2 },
+      ])
+      expect(getScreenPos(game, 3, 2)).toEqual({ x: 400, y: 300 })
+    })
+
+    it("places robots on given start tiles", () => {
+      const game = new Game({
+        map: new TileMap(6, 6),
+        robotTiles: [
+          { x: 1, y: 4 },
+          { x: 5, y: 0 },
+        ],
+        viewport: VIEWPORT,
+      })
+      expect(game.robots.map((r) => r.tile)).toEqual([
+        { x: 1, y: 4 },
+        { x: 5, y: 0 },
+      ])
+    })
+
+    it("moveRobot sends any robot along a path, if one exists", () => {
+      const map = new TileMap(6, 6)
+      map.place("habitat", 5, 5)
+      const game = new Game({ map, viewport: VIEWPORT })
+      const blue = game.robots[1]
+      expect(game.moveRobot(blue, { x: 0, y: 0 })).toBe(true)
+      expect(blue.goal).toEqual({ x: 0, y: 0 })
+      expect(blue.isMoving).toBe(true)
+      expect(game.moveRobot(blue, { x: 5, y: 5 })).toBe(false)
+      expect(game.moveRobot(blue, { x: 9, y: 9 })).toBe(false)
+      expect(blue.goal).toEqual({ x: 0, y: 0 })
+    })
+  })
+
   describe("robot selection", () => {
     /** Center of robot button `i` on the dashboard. */
     function robotButton(game: Game, i: number): Point {

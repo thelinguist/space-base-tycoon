@@ -118,9 +118,15 @@ export function drawTileOutline(
     .stroke({ color, alpha, width: 1.5 })
 }
 
-export interface GameOptions {
-  mapSize: number
-  seed: number
+/** Either generate a square map, or use one already prepared. */
+export type MapSource = { mapSize: number; seed: number } | { map: TileMap }
+
+export type GameOptions = MapSource & {
+  /**
+   * Start tile for each robot, in ROBOT_KINDS order. Defaults to side by
+   * side at the map's center, which generated maps keep clear.
+   */
+  robotTiles?: Point[]
   /** Viewport size in screen pixels, used to center the camera. */
   viewport: { width: number; height: number }
   /** Source of randomness for crew behavior; injectable for tests. */
@@ -164,10 +170,23 @@ export class Game {
     onMenu: boolean
   } | null = null
 
-  constructor({ mapSize, seed, viewport, random = Math.random }: GameOptions) {
+  constructor(options: GameOptions) {
+    const { viewport, random = Math.random } = options
     this.random = random
-    const center = { x: mapSize / 2, y: mapSize / 2 }
-    this.map = generateMap(mapSize, mapSize, seed, center)
+    if ("map" in options) {
+      this.map = options.map
+    } else {
+      const { mapSize, seed } = options
+      const keepClear = {
+        x: Math.floor(mapSize / 2),
+        y: Math.floor(mapSize / 2),
+      }
+      this.map = generateMap(mapSize, mapSize, seed, keepClear)
+    }
+    const center = {
+      x: Math.floor(this.map.width / 2),
+      y: Math.floor(this.map.height / 2),
+    }
     this.ground = buildGround(this.map)
     this.tileEffects = new TileEffects(this.map, this.ground, random)
 
@@ -182,10 +201,10 @@ export class Game {
     )
     buildBuildings(this.map, this.objects)
 
-    // Side by side in the clear area around the center.
-    this.robots = ROBOT_KINDS.map(
-      (kind, i) => new Robot(center.x + i, center.y, kind),
-    )
+    this.robots = ROBOT_KINDS.map((kind, i) => {
+      const tile = options.robotTiles?.[i] ?? { x: center.x + i, y: center.y }
+      return new Robot(tile.x, tile.y, kind)
+    })
     for (const r of this.robots) this.objects.addChild(r.sprite)
 
     const start = tileToWorld(center.x, center.y)
@@ -291,14 +310,18 @@ export class Game {
       this.build(selected, footprintOrigin(selected, g))
       return
     }
-    const t = this.camera.screenToTile(sx, sy)
-    const path = this.map.isInBounds(t.x, t.y)
-      ? findPath(this.map, this.selRobot.pathStart, t)
+    this.moveRobot(this.selRobot, this.camera.screenToTile(sx, sy))
+  }
+
+  /** Send a robot to a tile if it can get there; returns whether it can. */
+  moveRobot(robot: Robot, tile: Point): boolean {
+    const path = this.map.isInBounds(tile.x, tile.y)
+      ? findPath(this.map, robot.pathStart, tile)
       : null
-    if (path) {
-      this.selRobot.setPath(path)
-      this.selRobot.goal = t
-    }
+    if (!path) return false
+    robot.setPath(path)
+    robot.goal = tile
+    return true
   }
 
   cancelPress(): void {

@@ -3,6 +3,14 @@ import { Assets, Sprite, Texture } from "pixi.js"
 export type TerrainType = "regolith" | "rocky" | "crater" | "ice"
 export type BuildingType = "habitat" | "radar"
 
+/**
+ * URL of a file in public/assets. Goes through Vite's base URL so builds
+ * served from a subpath (e.g. GitHub Pages) still find it.
+ */
+function asset(path: string): string {
+  return `${import.meta.env.BASE_URL}assets/${path}`
+}
+
 interface SpriteDef {
   src: string
   /**
@@ -15,10 +23,10 @@ interface SpriteDef {
 
 // Flat terrain images are exactly one 64×32 diamond, anchored at the center.
 const TERRAIN: Record<TerrainType, SpriteDef> = {
-  regolith: { src: "/assets/tiles/regolith.svg", anchor: { x: 0.5, y: 0.5 } },
-  rocky: { src: "/assets/tiles/rocky.svg", anchor: { x: 0.5, y: 0.5 } },
-  crater: { src: "/assets/tiles/crater.svg", anchor: { x: 0.5, y: 0.5 } },
-  ice: { src: "/assets/tiles/ice.svg", anchor: { x: 0.5, y: 0.5 } },
+  regolith: { src: asset("tiles/regolith.svg"), anchor: { x: 0.5, y: 0.5 } },
+  rocky: { src: asset("tiles/rocky.svg"), anchor: { x: 0.5, y: 0.5 } },
+  crater: { src: asset("tiles/crater.svg"), anchor: { x: 0.5, y: 0.5 } },
+  ice: { src: asset("tiles/ice.svg"), anchor: { x: 0.5, y: 0.5 } },
 }
 
 /** Ice looks, differing only in crack pattern; plain "ice" is the first. */
@@ -26,26 +34,26 @@ export const ICE_VARIANTS = ["ice", "ice2", "ice3", "ice4"] as const
 export type IceVariant = (typeof ICE_VARIANTS)[number]
 
 const TERRAIN_VARIANTS: Record<Exclude<IceVariant, "ice">, SpriteDef> = {
-  ice2: { src: "/assets/tiles/ice-2.svg", anchor: { x: 0.5, y: 0.5 } },
-  ice3: { src: "/assets/tiles/ice-3.svg", anchor: { x: 0.5, y: 0.5 } },
-  ice4: { src: "/assets/tiles/ice-4.svg", anchor: { x: 0.5, y: 0.5 } },
+  ice2: { src: asset("tiles/ice-2.svg"), anchor: { x: 0.5, y: 0.5 } },
+  ice3: { src: asset("tiles/ice-3.svg"), anchor: { x: 0.5, y: 0.5 } },
+  ice4: { src: asset("tiles/ice-4.svg"), anchor: { x: 0.5, y: 0.5 } },
 }
 
 // Building images are 64px wide per footprint tile, with the footprint
 // diamond at the bottom; the anchor is the footprint diamond's center.
 const BUILDINGS: Record<BuildingType, SpriteDef> = {
-  habitat: { src: "/assets/tiles/habitat.svg", anchor: { x: 0.5, y: 56 / 72 } },
-  radar: { src: "/assets/tiles/radar.svg", anchor: { x: 0.5, y: 88 / 120 } },
+  habitat: { src: asset("tiles/habitat.svg"), anchor: { x: 0.5, y: 56 / 72 } },
+  radar: { src: asset("tiles/radar.svg"), anchor: { x: 0.5, y: 88 / 120 } },
 }
 
 const UNITS = {
-  robot: { src: "/assets/sprites/robot.svg", anchor: { x: 0.5, y: 36 / 40 } },
+  robot: { src: asset("sprites/robot.svg"), anchor: { x: 0.5, y: 36 / 40 } },
   robotBlue: {
-    src: "/assets/sprites/robot-blue.svg",
+    src: asset("sprites/robot-blue.svg"),
     anchor: { x: 0.5, y: 36 / 40 },
   },
   spaceman: {
-    src: "/assets/sprites/spaceman.svg",
+    src: asset("sprites/spaceman.svg"),
     anchor: { x: 0.5, y: 20 / 22 },
   },
 } satisfies Record<string, SpriteDef>
@@ -54,7 +62,7 @@ export type UnitType = keyof typeof UNITS
 
 // UI icons are anchored at the center.
 const ICONS = {
-  terraform: { src: "/assets/ui/terraform.svg", anchor: { x: 0.5, y: 0.5 } },
+  terraform: { src: asset("ui/terraform.svg"), anchor: { x: 0.5, y: 0.5 } },
 } satisfies Record<string, SpriteDef>
 
 export type IconType = keyof typeof ICONS
