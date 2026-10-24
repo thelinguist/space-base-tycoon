@@ -1,8 +1,34 @@
+import { Texture } from "pixi.js"
 import { describe, expect, it } from "vitest"
 import { gridToWorld, tileToWorld } from "./iso"
-import { Robot } from "./robot"
+import { Robot, ROBOT_KINDS } from "./robot"
+import { Walker } from "./walker"
+
+describe("Walker", () => {
+  it("moves at its own speed and reports its tile and route", () => {
+    const w = new Walker("spaceman", 0, 0, 1)
+    const path = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+    ]
+    w.setPath(path)
+    expect(w.remainingPath).toBe(path)
+    w.update(0.75) // 0.75 tiles
+    expect(w.pos.x).toBeCloseTo(1.25)
+    expect(w.tile).toEqual({ x: 1, y: 0 })
+  })
+})
 
 describe("Robot", () => {
+  it("is yellow by default and has no goal", () => {
+    const robot = new Robot(0, 0)
+    expect(robot.kind).toBe(ROBOT_KINDS[0])
+    expect(robot.goal).toBeNull()
+    expect(new Robot(0, 0, ROBOT_KINDS[1]).sprite.texture).toBe(
+      Texture.from("robotBlue"),
+    )
+  })
+
   it("starts idle at the center of its tile", () => {
     const robot = new Robot(4, 7)
     expect(robot.pos).toEqual({ x: 4.5, y: 7.5 })

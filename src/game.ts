@@ -1,26 +1,79 @@
-import { Container, FederatedPointerEvent, Graphics } from "pixi.js"
-import { makeSprite } from "./assets"
+import {
+  Container,
+  FederatedPointerEvent,
+  Graphics,
+  Sprite,
+  Texture,
+} from "pixi.js"
+import { AssetName, BuildingType, ICE_VARIANTS, makeSprite } from "./assets"
 import { Camera } from "./camera"
 import { BLOCKED_COLOR, GOAL_COLOR, HOVER_COLOR } from "./constants/color"
 import {
+  gridToWorld,
   gridToZIndex,
   Point,
-  tileCenter,
   tileCornersWorld,
   tileToWorld,
 } from "./iso"
-import { generateMap, TileMap } from "./map"
+import {
+  Building,
+  BUILDING_SIZE,
+  footprint,
+  footprintCenter,
+  generateMap,
+  TileMap,
+} from "./map"
 import { findPath } from "./pathfinding"
-import { Robot } from "./robot"
+import { Robot, ROBOT_KINDS } from "./robot"
+import { Spaceman } from "./spaceman"
+import { TERRAFORM_EFFECTS } from "./terraformEffects"
+import { TileEffects } from "./tileEffects"
+import { TerraformableTerrain, TERRAFORMABLE, ToolType } from "./tools"
+import { hash } from "./utils/noise"
+import { Dashboard } from "./ui/dashboard"
 
 /** Pointer movement (px) beyond which a press becomes a pan, not a click. */
 export const DRAG_THRESHOLD = 5
 
+/** Opacity of the placement preview shown under the cursor in build mode. */
+const GHOST_ALPHA = 0.6
+
+/** Horizontal radius, in world pixels, of the selected robot's ring. */
+const SELECTION_RING_RADIUS = 14
+
+/** Most spacemen a single radar station has out at once. */
+export const MAX_SPACEMEN_PER_STATION = 3
+/** Seconds between spawn attempts at a station: MIN + random × RANGE. */
+const SPAWN_MIN = 3
+const SPAWN_RANGE = 7
+
+/**
+ * Footprint origin for a building of `type` centered as closely as
+ * possible on a continuous grid position (the cursor). For 1×1 buildings
+ * this is simply the tile under the cursor.
+ */
+export function footprintOrigin(type: BuildingType, grid: Point): Point {
+  const half = BUILDING_SIZE[type] / 2
+  return { x: Math.round(grid.x - half), y: Math.round(grid.y - half) }
+}
+
+/** Seed for picking each ice tile's starting crack pattern. */
+const ICE_VARIANT_SEED = 7
+
+/** The sprite for a tile's terrain; ice gets a per-tile crack pattern. */
+export function groundAsset(map: TileMap, tx: number, ty: number): AssetName {
+  const terrain = map.getTile(tx, ty).terrain
+  if (terrain !== "ice") return terrain
+  const i = Math.floor(hash(tx, ty, ICE_VARIANT_SEED) * ICE_VARIANTS.length)
+  return ICE_VARIANTS[i]
+}
+
+/** One sprite per tile, in row-major order (index = ty × width + tx). */
 export function buildGround(map: TileMap): Container {
   const ground = new Container()
   for (let ty = 0; ty < map.height; ty++) {
     for (let tx = 0; tx < map.width; tx++) {
-      const sprite = makeSprite(map.getTile(tx, ty).terrain)
+      const sprite = makeSprite(groundAsset(map, tx, ty))
       const w = tileToWorld(tx, ty)
       sprite.position.set(w.x, w.y)
       ground.addChild(sprite)
@@ -30,18 +83,27 @@ export function buildGround(map: TileMap): Container {
 }
 
 export function buildBuildings(map: TileMap, into: Container): void {
-  for (let ty = 0; ty < map.height; ty++) {
-    for (let tx = 0; tx < map.width; tx++) {
-      const building = map.getTile(tx, ty).building
-      if (!building) continue
-      const sprite = makeSprite(building)
-      const w = tileToWorld(tx, ty)
-      const c = tileCenter(tx, ty)
-      sprite.position.set(w.x, w.y)
-      sprite.zIndex = gridToZIndex(c.x, c.y)
-      into.addChild(sprite)
-    }
+  for (const { type, x, y } of map.buildings) {
+    into.addChild(makeBuildingSprite(type, { x, y }))
   }
+}
+
+/** A building sprite standing on its footprint, depth-sorted by its center. */
+export function makeBuildingSprite(type: BuildingType, origin: Point): Sprite {
+  const sprite = makeSprite(type)
+  placeOnFootprint(sprite, type, origin)
+  return sprite
+}
+
+function placeOnFootprint(
+  sprite: Sprite,
+  type: BuildingType,
+  origin: Point,
+): void {
+  const c = footprintCenter(type, origin.x, origin.y)
+  const w = gridToWorld(c.x, c.y)
+  sprite.position.set(w.x, w.y)
+  sprite.zIndex = gridToZIndex(c.x, c.y)
 }
 
 export function drawTileOutline(
@@ -56,41 +118,94 @@ export function drawTileOutline(
     .stroke({ color, alpha, width: 1.5 })
 }
 
-export interface GameOptions {
-  mapSize: number
-  seed: number
+/** Either generate a square map, or use one already prepared. */
+export type MapSource = { mapSize: number; seed: number } | { map: TileMap }
+
+export type GameOptions = MapSource & {
+  /**
+   * Start tile for each robot, in ROBOT_KINDS order. Defaults to side by
+   * side at the map's center, which generated maps keep clear.
+   */
+  robotTiles?: Point[]
   /** Viewport size in screen pixels, used to center the camera. */
   viewport: { width: number; height: number }
+  /** Source of randomness for crew behavior; injectable for tests. */
+  random?: () => number
 }
 
 /** The scene and its input handling, independent of the Pixi Application. */
 export class Game {
   readonly map: TileMap
   readonly camera = new Camera()
-  readonly robot: Robot
+  /** Player robots, in ROBOT_KINDS order. */
+  readonly robots: Robot[]
+  /** One sprite per tile, row-major as built by buildGround. */
+  readonly ground: Container
+  /** Ambient terrain animations, drawn just above the ground. */
+  readonly tileEffects: TileEffects
   /** Tile highlights, drawn between the ground and objects. */
   readonly overlay = new Graphics()
+  /** Ring under the selected robot, drawn between the ground and objects. */
+  readonly selectionRing = new Graphics()
   /** Buildings and units, depth-sorted. */
   readonly objects = new Container()
+  /** Screen-space HUD; add `dashboard.view` above the camera world. */
+  readonly dashboard = new Dashboard()
+  /** Crew out roaming around radar stations. */
+  readonly spacemen: Spaceman[] = []
 
   hoverTile: Point | null = null
-  goalTile: Point | null = null
-  private press: { x: number; y: number; dragging: boolean } | null = null
+  /** Continuous grid position under the cursor, while over the map. */
+  hoverGrid: Point | null = null
+  /** Translucent preview of the selected building under the cursor. */
+  ghost: Sprite | null = null
+  /** Seconds until each radar station next tries to send someone out. */
+  private readonly spawnTimers = new Map<Building, number>()
+  private readonly random: () => number
+  private press: {
+    x: number
+    y: number
+    dragging: boolean
+    /** Press started on the dashboard: never pans or hits the map. */
+    onMenu: boolean
+  } | null = null
 
-  constructor({ mapSize, seed, viewport }: GameOptions) {
-    const center = { x: mapSize / 2, y: mapSize / 2 }
-    this.map = generateMap(mapSize, mapSize, seed, center)
+  constructor(options: GameOptions) {
+    const { viewport, random = Math.random } = options
+    this.random = random
+    if ("map" in options) {
+      this.map = options.map
+    } else {
+      const { mapSize, seed } = options
+      const keepClear = {
+        x: Math.floor(mapSize / 2),
+        y: Math.floor(mapSize / 2),
+      }
+      this.map = generateMap(mapSize, mapSize, seed, keepClear)
+    }
+    const center = {
+      x: Math.floor(this.map.width / 2),
+      y: Math.floor(this.map.height / 2),
+    }
+    this.ground = buildGround(this.map)
+    this.tileEffects = new TileEffects(this.map, this.ground, random)
 
     this.objects.sortableChildren = true
     this.camera.world.addChild(
-      buildGround(this.map),
+      this.ground,
+      this.tileEffects.view,
       this.overlay,
+      this.selectionRing,
       this.objects,
+      this.tileEffects.airView,
     )
     buildBuildings(this.map, this.objects)
 
-    this.robot = new Robot(center.x, center.y)
-    this.objects.addChild(this.robot.sprite)
+    this.robots = ROBOT_KINDS.map((kind, i) => {
+      const tile = options.robotTiles?.[i] ?? { x: center.x + i, y: center.y }
+      return new Robot(tile.x, tile.y, kind)
+    })
+    for (const r of this.robots) this.objects.addChild(r.sprite)
 
     const start = tileToWorld(center.x, center.y)
     this.camera.lookAt(
@@ -99,15 +214,66 @@ export class Game {
       viewport.width / 2,
       viewport.height / 2,
     )
+    this.resize(viewport.width, viewport.height)
+  }
+
+  /** The robot the player is currently controlling. */
+  get selRobot(): Robot {
+    return this.robots[this.dashboard.selectedRobot]
+  }
+
+  /** Where the selected robot is headed, if anywhere. */
+  get goalTile(): Point | null {
+    return this.selRobot.goal
+  }
+
+  /** Re-layout screen-space UI after the viewport changes size. */
+  resize(width: number, height: number): void {
+    this.dashboard.layout(width, height)
+  }
+
+  /** Whether a building could be placed with its origin at a tile now. */
+  canBuild(type: BuildingType, origin: Point): boolean {
+    if (!this.map.canPlace(type, origin.x, origin.y)) return false
+    // Don't build on top of anyone, or where they're about to step.
+    const occupied = [...this.robots, ...this.spacemen].flatMap((w) => [
+      w.tile,
+      w.pathStart,
+    ])
+    return !footprint(type, origin.x, origin.y).some((t) =>
+      occupied.some((o) => o.x === t.x && o.y === t.y),
+    )
+  }
+
+  /** Place a building if the footprint allows it; returns whether it did. */
+  build(type: BuildingType, origin: Point): boolean {
+    if (!this.canBuild(type, origin)) return false
+    this.map.place(type, origin.x, origin.y)
+    this.objects.addChild(makeBuildingSprite(type, origin))
+    // The new building may sit on a robot's route; re-plan around it.
+    for (const robot of this.robots) {
+      if (!robot.goal) continue
+      const path = findPath(this.map, robot.pathStart, robot.goal)
+      robot.setPath(path ?? [robot.pathStart])
+      if (!path) robot.goal = null
+    }
+    // Spacemen whose route is now blocked stop and pick a new one.
+    for (const s of this.spacemen) {
+      if (s.remainingPath.some((t) => !this.map.isWalkable(t.x, t.y))) {
+        s.setPath([s.pathStart])
+      }
+    }
+    return true
   }
 
   pointerDown(sx: number, sy: number): void {
-    this.press = { x: sx, y: sy, dragging: false }
+    const onMenu = this.dashboard.contains(sx, sy)
+    this.press = { x: sx, y: sy, dragging: false, onMenu }
   }
 
   pointerMove(sx: number, sy: number): void {
     const press = this.press
-    if (press) {
+    if (press && !press.onMenu) {
       const dx = sx - press.x
       const dy = sy - press.y
       if (press.dragging || Math.hypot(dx, dy) > DRAG_THRESHOLD) {
@@ -117,27 +283,99 @@ export class Game {
         press.y = sy
       }
     }
+    const g = this.camera.screenToGrid(sx, sy)
     const t = this.camera.screenToTile(sx, sy)
-    this.hoverTile = this.map.isInBounds(t.x, t.y) ? t : null
+    const overMap = this.map.isInBounds(t.x, t.y)
+    const visible = overMap && !this.dashboard.contains(sx, sy)
+    this.hoverTile = visible ? t : null
+    this.hoverGrid = visible ? g : null
   }
 
-  /** Ends a press; if it wasn't a drag, sends the robot to the clicked tile. */
+  /**
+   * Ends a press. A click on the dashboard selects a robot, tool or building; a
+   * click on the map places the selected building, or otherwise sends the
+   * selected robot there.
+   */
   pointerUp(sx: number, sy: number): void {
-    if (this.press && !this.press.dragging) {
-      const t = this.camera.screenToTile(sx, sy)
-      const path = this.map.isInBounds(t.x, t.y)
-        ? findPath(this.map, this.robot.pathStart, t)
-        : null
-      if (path) {
-        this.robot.setPath(path)
-        this.goalTile = t
-      }
-    }
+    const press = this.press
     this.press = null
+    if (!press || press.dragging) return
+    if (press.onMenu) {
+      this.withToolSync(() => this.dashboard.click(sx, sy))
+      return
+    }
+    const selected = this.dashboard.build.selected
+    if (selected) {
+      const g = this.camera.screenToGrid(sx, sy)
+      this.build(selected, footprintOrigin(selected, g))
+      return
+    }
+    this.moveRobot(this.selRobot, this.camera.screenToTile(sx, sy))
+  }
+
+  /** Send a robot to a tile if it can get there; returns whether it can. */
+  moveRobot(robot: Robot, tile: Point): boolean {
+    const path = this.map.isInBounds(tile.x, tile.y)
+      ? findPath(this.map, robot.pathStart, tile)
+      : null
+    if (!path) return false
+    robot.setPath(path)
+    robot.goal = tile
+    return true
   }
 
   cancelPress(): void {
     this.press = null
+  }
+
+  keyDown(key: string): void {
+    this.withToolSync(() => this.dashboard.keyDown(key))
+  }
+
+  /**
+   * Run a dashboard interaction, then reconcile the tool bar with the
+   * selected robot: switching robots shows the new robot's tool; otherwise
+   * the bar's choice becomes the robot's tool.
+   */
+  private withToolSync(interact: () => void): void {
+    const before = this.selRobot
+    interact()
+    if (this.selRobot !== before) {
+      this.dashboard.tools.select(this.selRobot.tool)
+    } else {
+      this.selRobot.tool = this.dashboard.tools.selected
+    }
+  }
+
+  /** Apply a tool to a tile; returns whether it changed anything. */
+  useTool(tool: ToolType, tile: Point): boolean {
+    switch (tool) {
+      case "terraform":
+        return this.terraform(tile)
+    }
+  }
+
+  /**
+   * Flatten ice, rocks or a crater into plain regolith, with an effect
+   * for how it's done: nitrogen freezes ice, a laser melts rock, and
+   * craters get filled in a cloud of dirt.
+   */
+  terraform(tile: Point): boolean {
+    const t = this.map.getTile(tile.x, tile.y)
+    if (!TERRAFORMABLE.has(t.terrain)) return false
+    const was = t.terrain as TerraformableTerrain
+    t.terrain = "regolith"
+    this.tileEffects.forgetTile(tile)
+    const sprite = this.ground.children[
+      tile.y * this.map.width + tile.x
+    ] as Sprite
+    sprite.texture = Texture.from("regolith")
+    sprite.label = "regolith"
+    // A cancelled ice shake may have left it off-center.
+    const w = tileToWorld(tile.x, tile.y)
+    sprite.position.set(w.x, w.y)
+    this.tileEffects.play(tile, TERRAFORM_EFFECTS[was])
+    return true
   }
 
   wheel(deltaY: number, sx: number, sy: number): void {
@@ -145,18 +383,94 @@ export class Game {
   }
 
   update(deltaSeconds: number): void {
-    this.robot.update(deltaSeconds)
-    if (!this.robot.isMoving) this.goalTile = null
+    // First, so effects robots trigger below get a frame before aging.
+    this.tileEffects.update(deltaSeconds)
+    for (const robot of this.robots) {
+      const wasMoving = robot.isMoving
+      robot.update(deltaSeconds)
+      if (robot.isMoving) continue
+      robot.goal = null
+      // Stopping on a tile uses the robot's tool there.
+      if (wasMoving && robot.tool) this.useTool(robot.tool, robot.tile)
+    }
+    this.updateCrew(deltaSeconds)
+
+    const { x, y } = this.selRobot.sprite.position
+    this.selectionRing
+      .clear()
+      .ellipse(x, y, SELECTION_RING_RADIUS, SELECTION_RING_RADIUS / 2)
+      .stroke({ color: this.selRobot.kind.color, width: 2 })
 
     this.overlay.clear()
-    if (this.goalTile) {
-      drawTileOutline(this.overlay, this.goalTile, GOAL_COLOR, 0.9)
+    for (const robot of this.robots) {
+      if (robot.goal) {
+        drawTileOutline(this.overlay, robot.goal, GOAL_COLOR, 0.9)
+      }
     }
-    if (this.hoverTile) {
+    const selected = this.dashboard.build.selected
+    const origin =
+      selected && this.hoverGrid
+        ? footprintOrigin(selected, this.hoverGrid)
+        : null
+    if (selected && origin) {
+      const color = this.canBuild(selected, origin)
+        ? HOVER_COLOR
+        : BLOCKED_COLOR
+      for (const t of footprint(selected, origin.x, origin.y)) {
+        drawTileOutline(this.overlay, t, color, 0.8)
+      }
+    } else if (this.hoverTile) {
       const { x, y } = this.hoverTile
       const color = this.map.isWalkable(x, y) ? HOVER_COLOR : BLOCKED_COLOR
       drawTileOutline(this.overlay, this.hoverTile, color, 0.8)
     }
+    this.updateGhost(selected, origin)
+  }
+
+  /** Send crew out of radar stations, move them, and let returnees in. */
+  private updateCrew(deltaSeconds: number): void {
+    for (const station of this.map.buildings) {
+      if (station.type !== "radar") continue
+      const left = (this.spawnTimers.get(station) ?? 0) - deltaSeconds
+      if (left > 0) {
+        this.spawnTimers.set(station, left)
+        continue
+      }
+      this.spawnTimers.set(station, SPAWN_MIN + this.random() * SPAWN_RANGE)
+      const out = this.spacemen.filter((s) => s.station === station).length
+      const doors = this.map.doorsOf(station)
+      if (out >= MAX_SPACEMEN_PER_STATION || doors.length === 0) continue
+      const door = doors[Math.floor(this.random() * doors.length)]
+      const spaceman = new Spaceman(station, door, this.random)
+      this.spacemen.push(spaceman)
+      this.objects.addChild(spaceman.sprite)
+    }
+
+    for (const s of this.spacemen) s.think(this.map, deltaSeconds)
+    for (let i = this.spacemen.length - 1; i >= 0; i--) {
+      if (this.spacemen[i].state !== "home") continue
+      this.spacemen[i].sprite.destroy()
+      this.spacemen.splice(i, 1)
+    }
+  }
+
+  private updateGhost(
+    selected: BuildingType | null,
+    origin: Point | null,
+  ): void {
+    if (!selected || !origin) {
+      this.ghost?.destroy()
+      this.ghost = null
+      return
+    }
+    if (this.ghost?.label !== selected) {
+      this.ghost?.destroy()
+      this.ghost = makeSprite(selected)
+      this.ghost.alpha = GHOST_ALPHA
+      this.objects.addChild(this.ghost)
+    }
+    placeOnFootprint(this.ghost, selected, origin)
+    this.ghost.tint = this.canBuild(selected, origin) ? 0xffffff : BLOCKED_COLOR
   }
 
   /** Route Pixi stage pointer events and canvas wheel events to the game. */
@@ -172,6 +486,7 @@ export class Game {
       this.pointerUp(e.global.x, e.global.y),
     )
     stage.on("pointerupoutside", () => this.cancelPress())
+    window.addEventListener("keydown", (e) => this.keyDown(e.key))
     canvas.addEventListener(
       "wheel",
       (e) => {

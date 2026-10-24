@@ -13,8 +13,15 @@ describe("assets", () => {
       "rocky",
       "crater",
       "ice",
+      "ice2",
+      "ice3",
+      "ice4",
       "habitat",
+      "radar",
       "robot",
+      "robotBlue",
+      "spaceman",
+      "terraform",
     ])
   })
 
@@ -27,7 +34,7 @@ describe("assets", () => {
     expect(add).toHaveBeenCalledTimes(ASSET_NAMES.length)
     expect(add).toHaveBeenCalledWith({
       alias: "robot",
-      src: "/assets/sprites/robot.svg",
+      src: `${import.meta.env.BASE_URL}assets/sprites/robot.svg`,
       data: { resolution: 2 },
     })
     expect(load).toHaveBeenCalledWith(ASSET_NAMES)
@@ -38,6 +45,7 @@ describe("assets", () => {
     expect(tile.texture).toBe(Texture.from("regolith"))
     expect(tile.anchor.x).toBe(0.5)
     expect(tile.anchor.y).toBe(0.5)
+    expect(tile.label).toBe("regolith")
 
     const habitat = makeSprite("habitat")
     expect(habitat.anchor.y).toBeCloseTo(56 / 72)

@@ -1,0 +1,37 @@
+# Release notes from conventional commits (https://www.conventionalcommits.org).
+# Used by .github/workflows/release.yml; preview locally with:
+#   bunx git-cliff@2 --latest --strip header   (or --unreleased before tagging)
+
+[changelog]
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{% if commit.breaking %}[**breaking**] {% endif %}\
+{{ commit.message | upper_first }} ({{ commit.id | truncate(length=7, end="") }})\
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+# Keep commits that don't follow the convention, under "Other".
+filter_unconventional = false
+split_commits = false
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Bug fixes" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^refactor", group = "<!-- 3 -->Refactoring" },
+  { message = "^docs", group = "<!-- 4 -->Documentation" },
+  { message = "^test", group = "<!-- 5 -->Tests" },
+  { message = "^(build|ci)", group = "<!-- 6 -->Build and CI" },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^(chore|style)", group = "<!-- 7 -->Chores" },
+  { message = ".*", group = "<!-- 8 -->Other" },
+]
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"

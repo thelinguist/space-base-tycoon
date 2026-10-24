@@ -1,0 +1,50 @@
+# Lint, format check, tests (with the 100% coverage gate) and build.
+# Runs on PRs and pushes to main, and is reused by release.yml so a tag is
+# deployed from exactly the build these checks produced.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      upload-pages:
+        description: Upload dist/ as the GitHub Pages artifact
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Prettier
+        run: bun run format:check
+
+      - name: Test
+        run: bun run coverage
+
+      - name: Build
+        run: bun run build
+
+      - name: Upload Pages artifact
+        if: ${{ inputs.upload-pages }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
